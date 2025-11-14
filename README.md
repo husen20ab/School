@@ -39,40 +39,79 @@ VITE_BG_URL=https://example.com/your-school-campus.jpg
 
 ## Production Deployment
 
-### 1. Backend (FastAPI)
-Deploy to your preferred platform (Render, Railway, Fly.io, etc.) with:
+This project is configured for:
+- **Backend**: Render.com (FastAPI)
+- **Frontend**: Netlify (React)
+- **Database**: MongoDB Atlas
 
-```bash
-uvicorn main:app --host 0.0.0.0 --port 8000
-```
+### Step 1: Deploy Backend to Render.com
 
-Set environment variables:
-- `MONGODB_URI` — your MongoDB Atlas connection string
-- `CORS_ORIGINS` — include Netlify domain, e.g. `https://your-site.netlify.app`
+1. **Push your code to GitHub** (if not already done)
 
-Recommended hardening:
-- Run behind HTTPS (reverse proxy or managed load balancer)
-- Enable process supervision (systemd, gunicorn+uvicorn workers, etc.)
-- Configure logging/monitoring and database backups
+2. **Create a new Web Service on Render.com**:
+   - Go to [Render Dashboard](https://dashboard.render.com)
+   - Click "New +" → "Web Service"
+   - Connect your GitHub repository
+   - Render will auto-detect `render.yaml` configuration
 
-### 2. Frontend (Netlify)
+3. **Configure the service** (or let `render.yaml` handle it):
+   - **Name**: `school-app-backend` (or your preferred name)
+   - **Environment**: Python 3
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Health Check Path**: `/health`
 
-`netlify.toml` already targets the `frontend/` directory:
-```toml
-[build]
-  base = "frontend"
-  command = "npm run build"
-  publish = "dist"
-```
+4. **Set Environment Variables** in Render dashboard:
+   - `MONGODB_URI`: `mongodb+srv://husen20ab_db_user:hOWWOtRx1cEg8jBw@cluster0.neidmqo.mongodb.net/`
+   - `CORS_ORIGINS`: `https://school-logistics.netlify.app` (your Netlify domain)
 
-Steps:
-1. Connect Netlify to this repository.
-2. Set environment variables in the Netlify dashboard:
-   - `VITE_API_BASE=https://your-backend-domain`
-   - Optional `VITE_BG_URL=https://example.com/your-school-campus.jpg`
-3. Deploy – Netlify will run `npm run build` and publish `dist/`.
+5. **Deploy** - Render will build and deploy your backend
+   - Note your backend URL (e.g., `https://school-app-backend.onrender.com`)
 
-SPA routing is handled via `frontend/public/_redirects` (`/* /index.html 200`).
+### Step 2: Deploy Frontend to Netlify
+
+1. **Connect Netlify to GitHub**:
+   - Go to [Netlify Dashboard](https://app.netlify.com)
+   - Click "Add new site" → "Import an existing project"
+   - Select your GitHub repository
+
+2. **Configure build settings** (auto-detected from `netlify.toml`):
+   - **Base directory**: `frontend`
+   - **Build command**: `npm run build`
+   - **Publish directory**: `dist`
+
+3. **Set Environment Variables** in Netlify dashboard:
+   - Go to Site settings → Build & deploy → Environment
+   - Add:
+     - `VITE_API_BASE`: Your Render backend URL (e.g., `https://school-app-backend.onrender.com`)
+     - Optional: `VITE_BG_URL`: Custom background image URL
+
+4. **Deploy** - Netlify will build and deploy your frontend
+   - Your frontend will be available at: `https://school-logistics.netlify.app`
+
+### Step 3: Update CORS in Render (if not set in Step 1)
+
+1. Go back to Render.com dashboard
+2. Navigate to your backend service → Environment
+3. Update `CORS_ORIGINS` to include your Netlify domain:
+   ```
+   https://school-logistics.netlify.app
+   ```
+
+4. **Redeploy** the backend service (Render will auto-redeploy on env var changes)
+
+### Step 4: Verify Deployment
+
+- Visit your Netlify URL: **https://school-logistics.netlify.app**
+- Test creating/editing/deleting students
+- Check backend health: `https://your-backend.onrender.com/health`
+- View API docs: `https://your-backend.onrender.com/docs`
+
+**Live Site**: [https://school-logistics.netlify.app](https://school-logistics.netlify.app)
+
+---
+
+**Note**: The MongoDB Atlas connection string is configured in `render.yaml` and will be set automatically when deploying via Render's Blueprint. You can also set it manually in the Render dashboard if needed.
 
 ---
 
@@ -97,7 +136,8 @@ SPA routing is handled via `frontend/public/_redirects` (`/* /index.html 200`).
 ```
 my-env/
 ├── main.py                # FastAPI application
-├── requirements.app.txt   # Backend dependencies
+├── requirements.txt       # Backend dependencies
+├── render.yaml            # Render.com deployment configuration
 ├── netlify.toml           # Netlify build configuration
 ├── frontend/
 │   ├── package.json
