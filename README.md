@@ -19,9 +19,11 @@ Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MONGO_URL` | `mongodb://localhost:27017` | Mongo connection string |
+| `MONGO_URL` | MongoDB Atlas connection string | Mongo connection string (defaults to Atlas cluster) |
 | `MONGO_DB` | `school` | Database name |
 | `CORS_ORIGINS` | local dev origins | Comma-separated list of allowed origins (set Netlify domain here for production) |
+
+**Note**: The project is configured to use MongoDB Atlas by default. To override, set `MONGO_URL` environment variable.
 
 ### Frontend
 ```bash
