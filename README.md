@@ -4,6 +4,13 @@ Full-stack CRUD application for managing students and their enrolled courses.
 Backend: FastAPI + MongoDB.  
 Frontend: React (Vite) with Netlify-ready configuration.
 
+## 🚀 Live URLs
+
+- **Frontend**: [https://school-logistics.netlify.app](https://school-logistics.netlify.app)
+- **Backend API**: [https://school-0a5y.onrender.com](https://school-0a5y.onrender.com)
+- **API Docs**: [https://school-0a5y.onrender.com/docs](https://school-0a5y.onrender.com/docs)
+- **Health Check**: [https://school-0a5y.onrender.com/health](https://school-0a5y.onrender.com/health)
+
 ---
 
 ## Quick Start (Local Development)
@@ -32,6 +39,7 @@ npm run dev
 Optional `frontend/.env.local`:
 ```
 VITE_API_BASE=http://localhost:8000
+# Or use production backend: VITE_API_BASE=https://school-0a5y.onrender.com
 VITE_BG_URL=https://example.com/your-school-campus.jpg
 ```
 
@@ -66,7 +74,7 @@ This project is configured for:
    - `CORS_ORIGINS`: `https://school-logistics.netlify.app` (your Netlify domain)
 
 5. **Deploy** - Render will build and deploy your backend
-   - Note your backend URL (e.g., `https://school-app-backend.onrender.com`)
+   - Your backend URL: **https://school-0a5y.onrender.com**
 
 ### Step 2: Deploy Frontend to Netlify
 
@@ -83,7 +91,7 @@ This project is configured for:
 3. **Set Environment Variables** in Netlify dashboard:
    - Go to Site settings → Build & deploy → Environment
    - Add:
-     - `VITE_API_BASE`: Your Render backend URL (e.g., `https://school-app-backend.onrender.com`)
+     - `VITE_API_BASE`: `https://school-0a5y.onrender.com`
      - Optional: `VITE_BG_URL`: Custom background image URL
 
 4. **Deploy** - Netlify will build and deploy your frontend
@@ -104,10 +112,11 @@ This project is configured for:
 
 - Visit your Netlify URL: **https://school-logistics.netlify.app**
 - Test creating/editing/deleting students
-- Check backend health: `https://your-backend.onrender.com/health`
-- View API docs: `https://your-backend.onrender.com/docs`
+- Check backend health: **https://school-0a5y.onrender.com/health**
+- View API docs: **https://school-0a5y.onrender.com/docs**
 
-**Live Site**: [https://school-logistics.netlify.app](https://school-logistics.netlify.app)
+**Live Site**: [https://school-logistics.netlify.app](https://school-logistics.netlify.app)  
+**Backend API**: [https://school-0a5y.onrender.com](https://school-0a5y.onrender.com)
 
 ---
 
