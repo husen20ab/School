@@ -10,6 +10,9 @@ from bson import ObjectId
 
 # --- MongoDB Connection ---
 MONGODB_URI = os.environ.get("MONGODB_URI")
+if not MONGODB_URI:
+    raise ValueError("MONGODB_URI environment variable is not set")
+
 client = AsyncIOMotorClient(MONGODB_URI)
 db = client["school"]
 
@@ -17,7 +20,13 @@ db = client["school"]
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.db = db
-    print("Mongo connected")
+    try:
+        # Test connection
+        await client.admin.command('ping')
+        print(f"Mongo connected to database: {db.name}")
+    except Exception as e:
+        print(f"MongoDB connection error: {e}")
+        raise
     try:
         yield
     finally:
@@ -78,14 +87,22 @@ def doc_to_out(doc: dict) -> StudentOut:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    try:
+        # Test database connection
+        await client.admin.command('ping')
+        return {"status": "ok", "database": "connected"}
+    except Exception as e:
+        return {"status": "error", "database": "disconnected", "error": str(e)}, 503
 
 # ---------- List students ----------
 @app.get("/api/students", response_model=List[StudentOut])
 async def list_students():
-    coll = db["students"]
-    docs = await coll.find({}).to_list(length=None)
-    return [doc_to_out(d) for d in docs]
+    try:
+        coll = db["students"]
+        docs = await coll.find({}).to_list(length=None)
+        return [doc_to_out(d) for d in docs]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # ---------- GET one student ----------
 @app.get("/api/students/{id}", response_model=StudentOut)

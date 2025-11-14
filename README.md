@@ -124,6 +124,33 @@ This project is configured for:
 
 ---
 
+## Troubleshooting
+
+### Internal Server Error on `/api/students`
+
+If you're getting a 500 error, check:
+
+1. **Verify MongoDB URI in Render**:
+   - Go to Render Dashboard → Your Service → Environment
+   - Ensure `MONGODB_URI` is set to: `mongodb+srv://husen20ab_db_user:hOWWOtRx1cEg8jBw@cluster0.neidmqo.mongodb.net/`
+   - If missing, add it and redeploy
+
+2. **Check MongoDB Atlas Network Access**:
+   - Go to MongoDB Atlas → Network Access
+   - Add IP Address: `0.0.0.0/0` (allow all) or add Render.com IPs
+   - Wait a few minutes for changes to propagate
+
+3. **Check Health Endpoint**:
+   - Visit: `https://school-0a5y.onrender.com/health`
+   - Should return: `{"status": "ok", "database": "connected"}`
+   - If it shows an error, check Render logs for details
+
+4. **Check Render Logs**:
+   - Go to Render Dashboard → Your Service → Logs
+   - Look for MongoDB connection errors
+
+---
+
 ## Testing & Quality
 
 - API validation uses Pydantic models (`StudentIn`, `StudentOut`).
