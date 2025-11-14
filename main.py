@@ -2,26 +2,26 @@ import os
 from contextlib import asynccontextmanager
 from typing import List, Optional
 
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 
-# --- Config ---
-MONGO_URL = os.getenv("MONGO_URL", "mongodb+srv://husen20ab_db_user:hOWWOtRx1cEg8jBw@cluster0.neidmqo.mongodb.net/")
-DB_NAME = os.getenv("MONGO_DB", "school")
+# --- MongoDB Connection ---
+MONGODB_URI = os.environ.get("MONGODB_URI")
+client = AsyncIOMotorClient(MONGODB_URI)
+db = client["school"]
 
 # --- Lifespan (connect once) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.mongo_client = AsyncIOMotorClient(MONGO_URL)
-    app.state.db = app.state.mongo_client[DB_NAME]
+    app.state.db = db
     print("Mongo connected")
     try:
         yield
     finally:
-        app.state.mongo_client.close()
+        client.close()
         print("Mongo connection closed")
 
 app = FastAPI(title="School App", lifespan=lifespan)
@@ -82,15 +82,15 @@ async def health():
 
 # ---------- List students ----------
 @app.get("/api/students", response_model=List[StudentOut])
-async def list_students(request: Request):
-    coll = request.app.state.db["students"]
+async def list_students():
+    coll = db["students"]
     docs = await coll.find({}).to_list(length=None)
     return [doc_to_out(d) for d in docs]
 
 # ---------- GET one student ----------
 @app.get("/api/students/{id}", response_model=StudentOut)
-async def get_student(request: Request, id: str):
-    coll = request.app.state.db["students"]
+async def get_student(id: str):
+    coll = db["students"]
     doc = await coll.find_one({"_id": oid(id)})
     if not doc:
         raise HTTPException(status_code=404, detail="Student not found")
@@ -98,8 +98,8 @@ async def get_student(request: Request, id: str):
 
 # ---------- Create student ----------
 @app.post("/api/students", response_model=StudentOut, status_code=status.HTTP_201_CREATED)
-async def create_student(request: Request, s: StudentIn):
-    coll = request.app.state.db["students"]
+async def create_student(s: StudentIn):
+    coll = db["students"]
     data = {"name": s.name, "age": s.age, "courses": s.courses or []}
     res = await coll.insert_one(data)
     doc = await coll.find_one({"_id": res.inserted_id})
@@ -107,8 +107,8 @@ async def create_student(request: Request, s: StudentIn):
 
 # ---------- Delete student ----------
 @app.delete("/api/students/{id}", status_code=status.HTTP_200_OK)
-async def delete_student(request: Request, id: str):
-    coll = request.app.state.db["students"]
+async def delete_student(id: str):
+    coll = db["students"]
     result = await coll.delete_one({"_id": oid(id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Student not found")
@@ -116,8 +116,8 @@ async def delete_student(request: Request, id: str):
 
 # Update a student
 @app.put("/api/students/{id}", response_model=StudentOut)
-async def update_student(request: Request, id: str, s: StudentIn):
-    coll = request.app.state.db["students"]
+async def update_student(id: str, s: StudentIn):
+    coll = db["students"]
     # Build update payload from the provided model
     update_data = {k: v for k, v in s.model_dump().items() if v is not None}
     result = await coll.update_one({"_id": oid(id)}, {"$set": update_data})

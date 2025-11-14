@@ -17,13 +17,10 @@ uvicorn main:app --reload
 ```
 Environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MONGO_URL` | MongoDB Atlas connection string | Mongo connection string (defaults to Atlas cluster) |
-| `MONGO_DB` | `school` | Database name |
-| `CORS_ORIGINS` | local dev origins | Comma-separated list of allowed origins (set Netlify domain here for production) |
-
-**Note**: The project is configured to use MongoDB Atlas by default. To override, set `MONGO_URL` environment variable.
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `MONGODB_URI` | Yes | MongoDB Atlas connection string (set in Render.com environment variables) |
+| `CORS_ORIGINS` | No | Comma-separated list of allowed origins (defaults to local dev origins; set Netlify domain for production) |
 
 ### Frontend
 ```bash
@@ -50,7 +47,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
 Set environment variables:
-- `MONGO_URL` and `MONGO_DB`
+- `MONGODB_URI` — your MongoDB Atlas connection string
 - `CORS_ORIGINS` — include Netlify domain, e.g. `https://your-site.netlify.app`
 
 Recommended hardening:
