@@ -37,17 +37,26 @@ app = FastAPI(title="School App", lifespan=lifespan)
 
 
 def _cors_origins() -> List[str]:
-    env_value = os.getenv("CORS_ORIGINS", "")
-    if env_value:
-        origins = [origin.strip() for origin in env_value.split(",") if origin.strip()]
-        if origins:
-            return origins
-    return [
+    # Default origins (always include Netlify domain)
+    default_origins = [
+        "https://school-logistics.netlify.app",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+    
+    env_value = os.getenv("CORS_ORIGINS", "")
+    if env_value:
+        origins = [origin.strip() for origin in env_value.split(",") if origin.strip()]
+        if origins:
+            # Merge with defaults, avoiding duplicates
+            combined = list(set(default_origins + origins))
+            print(f"CORS origins configured: {combined}")
+            return combined
+    
+    print(f"CORS origins (defaults): {default_origins}")
+    return default_origins
 
 
 # CORS for local dev + configurable production domains

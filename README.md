@@ -149,6 +149,33 @@ If you're getting a 500 error, check:
    - Go to Render Dashboard → Your Service → Logs
    - Look for MongoDB connection errors
 
+### Netlify Frontend Not Showing Students
+
+If the frontend loads but shows no students:
+
+1. **Verify `VITE_API_BASE` in Netlify**:
+   - Go to Netlify Dashboard → Your Site → Site settings → Build & deploy → Environment
+   - Ensure `VITE_API_BASE` is set to: `https://school-0a5y.onrender.com`
+   - **Important**: After adding/updating, you must trigger a new deploy
+   - Go to Deploys → Trigger deploy → Deploy site
+
+2. **Check Browser Console**:
+   - Open browser DevTools (F12) → Console tab
+   - Look for errors or check what URL it's trying to fetch
+   - Should see: `Fetching students from: https://school-0a5y.onrender.com/api/students`
+   - If it shows a relative path like `/api/students`, the env var is not set
+
+3. **Verify CORS is Working**:
+   - Check browser Network tab for failed requests
+   - CORS errors will show in console as "blocked by CORS policy"
+   - **Note**: The Netlify domain is now hardcoded in the backend code, so CORS should work automatically
+   - If you still get CORS errors, redeploy the backend on Render.com
+
+4. **Test Backend Directly**:
+   - Visit: `https://school-0a5y.onrender.com/api/students`
+   - Should return JSON array (even if empty: `[]`)
+   - If this works but frontend doesn't, it's a CORS or env var issue
+
 ---
 
 ## Testing & Quality

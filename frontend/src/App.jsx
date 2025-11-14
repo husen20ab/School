@@ -54,16 +54,27 @@ export default function App() {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(makeUrl('/api/students'))
-      if (!res.ok) throw new Error('Failed to load')
+      const url = makeUrl('/api/students')
+      console.log('Fetching students from:', url)
+      const res = await fetch(url)
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(`Failed to load: ${res.status} ${res.statusText}. ${errorText}`)
+      }
       const data = await res.json()
       setStudents(data)
+    } catch (err) {
+      console.error('Error loading students:', err)
+      setError(err.message || 'Failed to load students. Check if VITE_API_BASE is set in Netlify.')
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => {
+    // Debug: Log API configuration
+    console.log('API_BASE:', API_BASE || 'Not set (using relative paths)')
+    console.log('Full API URL:', makeUrl('/api/students'))
     load()
   }, [])
 
