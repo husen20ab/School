@@ -249,10 +249,6 @@ export default function App() {
             />
             <button className="btn btn-primary" type="submit">Login</button>
           </form>
-          <div className="login-hint">
-            <p><strong>Admin:</strong> admin / admin</p>
-            <p><strong>John:</strong> john / john</p>
-          </div>
         </div>
       </div>
     )
