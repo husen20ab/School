@@ -43,6 +43,18 @@ VITE_API_BASE=http://localhost:8000
 VITE_BG_URL=https://example.com/your-school-campus.jpg
 ```
 
+## Authentication
+
+| Username | Password | Role  | Notes                                                                 |
+|----------|----------|-------|-----------------------------------------------------------------------|
+| `admin`  | `admin`  | admin | Full access to all features, including health check and API docs      |
+| `john`   | `john`   | user  | Limited access – cannot open health, list JSON, OpenAPI Docs, or ReDoc |
+
+- Use the built-in login screen (calming nature background) to authenticate.
+- The frontend stores a short-lived token in `localStorage`.
+- All API calls require `Authorization: Bearer <token>` and go through `/api/login`.
+- Admin-only pages (`/health`, `/docs`, `/redoc`) require admin credentials.
+
 ---
 
 ## Production Deployment
