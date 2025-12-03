@@ -257,6 +257,7 @@ export default function App() {
       </div>
     )
   }
+  <Route path="/signup" element={<Signup />} />
 
   return (
     <div className="page">
