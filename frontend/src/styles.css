@@ -216,5 +216,26 @@ body.login-mode {
   border-radius: 999px;
 }
 
+.login-switch {
+  margin-top: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0;
+  font-size: inherit;
+}
+
+.link-btn:hover {
+  color: #1d4ed8;
+}
+
 
 

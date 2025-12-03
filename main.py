@@ -1,5 +1,6 @@
 import os
 import secrets
+import hashlib
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
 
@@ -18,11 +19,29 @@ if not MONGODB_URI:
 client = AsyncIOMotorClient(MONGODB_URI)
 db = client["school"]
 
-USERS: Dict[str, Dict[str, str]] = {
-    "admin": {"password": "admin", "role": "admin"},
-    "john": {"password": "john", "role": "user"},
-}
 SESSIONS: Dict[str, Dict[str, str]] = {}
+
+def hash_password(password: str) -> str:
+    """Hash password using SHA-256 (simple hashing for this app)"""
+    return hashlib.sha256(password.encode()).hexdigest()
+
+async def init_users():
+    """Initialize default users in MongoDB if they don't exist"""
+    users_coll = db["users"]
+    
+    default_users = [
+        {"username": "admin", "password": hash_password("admin"), "role": "admin"},
+        {"username": "john", "password": hash_password("john"), "role": "user"},
+    ]
+    
+    for user in default_users:
+        # Ensure username is lowercase for consistency
+        username = user["username"].lower()
+        existing = await users_coll.find_one({"username": username})
+        if not existing:
+            user["username"] = username
+            await users_coll.insert_one(user)
+            print(f"Created default user: {username}")
 
 # --- Lifespan (connect once) ---
 @asynccontextmanager
@@ -32,6 +51,8 @@ async def lifespan(app: FastAPI):
         # Test connection
         await client.admin.command('ping')
         print(f"Mongo connected to database: {db.name}")
+        # Initialize default users
+        await init_users()
     except Exception as e:
         print(f"MongoDB connection error: {e}")
         raise
@@ -95,8 +116,13 @@ class StudentOut(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., min_length=1, max_length=50)
+    password: str = Field(..., min_length=1)
+
+
+class SignupRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50, pattern="^[a-zA-Z0-9_]+$")
+    password: str = Field(..., min_length=3, max_length=100)
 
 
 class LoginResponse(BaseModel):
@@ -137,14 +163,57 @@ def doc_to_out(doc: dict) -> StudentOut:
 
 @app.post("/api/login", response_model=LoginResponse)
 async def login(credentials: LoginRequest):
-    user_record = USERS.get(credentials.username)
-    if not user_record or user_record["password"] != credentials.password:
+    users_coll = db["users"]
+    # Normalize username (lowercase for consistency)
+    username = credentials.username.strip().lower()
+    user_doc = await users_coll.find_one({"username": username})
+    
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    
+    hashed_password = hash_password(credentials.password)
+    if user_doc["password"] != hashed_password:
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     token = secrets.token_hex(32)
-    session = {"username": credentials.username, "role": user_record["role"], "token": token}
+    session = {"username": username, "role": user_doc["role"], "token": token}
     SESSIONS[token] = session
-    return LoginResponse(token=token, username=credentials.username, role=user_record["role"])
+    return LoginResponse(token=token, username=username, role=user_doc["role"])
+
+
+@app.post("/api/signup", response_model=LoginResponse)
+async def signup(user_data: SignupRequest):
+    users_coll = db["users"]
+    
+    # Normalize username (lowercase for consistency)
+    username = user_data.username.strip().lower()
+    
+    # Check if username already exists
+    existing = await users_coll.find_one({"username": username})
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    # Create new user with 'user' role by default
+    hashed_password = hash_password(user_data.password)
+    new_user = {
+        "username": username,
+        "password": hashed_password,
+        "role": "user"
+    }
+    
+    try:
+        result = await users_coll.insert_one(new_user)
+        if not result.inserted_id:
+            raise HTTPException(status_code=500, detail="Failed to create user")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+    # Auto-login after signup
+    token = secrets.token_hex(32)
+    session = {"username": username, "role": "user", "token": token}
+    SESSIONS[token] = session
+    
+    return LoginResponse(token=token, username=username, role="user")
 
 
 @app.get("/health")
@@ -188,11 +257,18 @@ async def get_student(id: str, _: Dict[str, str] = Depends(require_user)):
 # ---------- Create student ----------
 @app.post("/api/students", response_model=StudentOut, status_code=status.HTTP_201_CREATED)
 async def create_student(s: StudentIn, _: Dict[str, str] = Depends(require_user)):
-    coll = db["students"]
-    data = {"name": s.name, "age": s.age, "courses": s.courses or []}
-    res = await coll.insert_one(data)
-    doc = await coll.find_one({"_id": res.inserted_id})
-    return doc_to_out(doc)
+    try:
+        coll = db["students"]
+        data = {"name": s.name.strip(), "age": s.age, "courses": [c.strip() for c in (s.courses or []) if c.strip()]}
+        res = await coll.insert_one(data)
+        doc = await coll.find_one({"_id": res.inserted_id})
+        if not doc:
+            raise HTTPException(status_code=500, detail="Failed to retrieve created student")
+        return doc_to_out(doc)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # ---------- Delete student ----------
 @app.delete("/api/students/{id}", status_code=status.HTTP_200_OK)
@@ -206,13 +282,24 @@ async def delete_student(id: str, _: Dict[str, str] = Depends(require_user)):
 # Update a student
 @app.put("/api/students/{id}", response_model=StudentOut)
 async def update_student(id: str, s: StudentIn, _: Dict[str, str] = Depends(require_user)):
-    coll = db["students"]
-    # Build update payload from the provided model
-    update_data = {k: v for k, v in s.model_dump().items() if v is not None}
-    result = await coll.update_one({"_id": oid(id)}, {"$set": update_data})
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Student not found")
-    
-    # fetch and return the updated doc
-    doc = await coll.find_one({"_id": oid(id)})
-    return doc_to_out(doc)
+    try:
+        coll = db["students"]
+        # Build update payload from the provided model, cleaning data
+        update_data = {
+            "name": s.name.strip(),
+            "age": s.age,
+            "courses": [c.strip() for c in (s.courses or []) if c.strip()]
+        }
+        result = await coll.update_one({"_id": oid(id)}, {"$set": update_data})
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        # Fetch and return the updated doc
+        doc = await coll.find_one({"_id": oid(id)})
+        if not doc:
+            raise HTTPException(status_code=500, detail="Failed to retrieve updated student")
+        return doc_to_out(doc)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
