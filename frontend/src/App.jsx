@@ -33,6 +33,7 @@ export default function App() {
   const [editId, setEditId] = useState('')
   const [loginForm, setLoginForm] = useState({ username: '', password: '' })
   const [loginError, setLoginError] = useState('')
+  const [signupForm, setSignupForm] = useState({ username: '', password: '' })
   const [auth, setAuth] = useState(getStoredAuth)
 
   const isAdmin = auth.role === 'admin'
@@ -250,6 +251,7 @@ export default function App() {
             <button className="btn btn-primary" type="submit">Login</button>
           </form>
         </div>
+        <a href="/signup">Sign up</a>
       </div>
     )
   }
