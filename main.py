@@ -131,6 +131,17 @@ class LoginResponse(BaseModel):
     role: str
 
 
+class CreateUserRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50, pattern="^[a-zA-Z0-9_]+$")
+    password: str = Field(..., min_length=3, max_length=100)
+    role: str = Field(..., pattern="^(admin|user)$")
+
+
+class UserOut(BaseModel):
+    username: str
+    role: str
+
+
 def require_user(authorization: Optional[str] = Header(default=None)) -> Dict[str, str]:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
@@ -234,6 +245,69 @@ async def custom_swagger(_: Dict[str, str] = Depends(require_admin)):
 @app.get("/redoc", include_in_schema=False)
 async def custom_redoc(_: Dict[str, str] = Depends(require_admin)):
     return get_redoc_html(openapi_url="/openapi.json", title="School App ReDoc")
+
+
+@app.post("/api/users", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+async def create_user(user_data: CreateUserRequest, _: Dict[str, str] = Depends(require_admin)):
+    """Create a new user (admin only)"""
+    users_coll = db["users"]
+    
+    # Normalize username (lowercase for consistency)
+    username = user_data.username.strip().lower()
+    
+    # Check if username already exists
+    existing = await users_coll.find_one({"username": username})
+    if existing:
+        raise HTTPException(status_code=400, detail="Username already exists")
+    
+    # Create new user with specified role
+    hashed_password = hash_password(user_data.password)
+    new_user = {
+        "username": username,
+        "password": hashed_password,
+        "role": user_data.role
+    }
+    
+    try:
+        result = await users_coll.insert_one(new_user)
+        if not result.inserted_id:
+            raise HTTPException(status_code=500, detail="Failed to create user")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    
+    return UserOut(username=username, role=user_data.role)
+
+
+@app.get("/api/users", response_model=List[UserOut])
+async def list_users(_: Dict[str, str] = Depends(require_admin)):
+    """List all users (admin only)"""
+    try:
+        users_coll = db["users"]
+        docs = await users_coll.find({}, {"password": 0}).to_list(length=None)
+        return [UserOut(username=doc["username"], role=doc["role"]) for doc in docs]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@app.delete("/api/users/{username}", status_code=status.HTTP_200_OK)
+async def delete_user(username: str, current_user: Dict[str, str] = Depends(require_admin)):
+    """Delete a user (admin only, cannot delete self)"""
+    username = username.lower()
+    
+    # Prevent admin from deleting themselves
+    if username == current_user["username"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    
+    try:
+        users_coll = db["users"]
+        result = await users_coll.delete_one({"username": username})
+        if result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        return {"message": f"User {username} deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # ---------- List students ----------
 @app.get("/api/students", response_model=List[StudentOut])

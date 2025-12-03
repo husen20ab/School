@@ -27,7 +27,9 @@ const getStoredAuth = () => {
 
 export default function App() {
   const [students, setStudents] = useState([])
+  const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(false)
+  const [usersLoading, setUsersLoading] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({ name: '', age: '', courses: '' })
   const [editId, setEditId] = useState('')
@@ -36,6 +38,9 @@ export default function App() {
   const [signupForm, setSignupForm] = useState({ username: '', password: '' })
   const [signupError, setSignupError] = useState('')
   const [showSignup, setShowSignup] = useState(false)
+  const [showUsers, setShowUsers] = useState(false)
+  const [userForm, setUserForm] = useState({ username: '', password: '', role: 'user' })
+  const [userError, setUserError] = useState('')
   const [auth, setAuth] = useState(getStoredAuth)
 
   const isAdmin = auth.role === 'admin'
@@ -122,10 +127,33 @@ export default function App() {
     }
   }, [auth.token, fetchWithAuth])
 
+  const loadUsers = useCallback(async () => {
+    if (!auth.token || !isAdmin) return
+    setUsersLoading(true)
+    try {
+      const res = await fetchWithAuth('/api/users')
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(`Failed to load users: ${res.status} ${res.statusText}. ${errorText}`)
+      }
+      const data = await res.json()
+      setUsers(data)
+    } catch (err) {
+      // Silently fail for users - not critical
+    } finally {
+      setUsersLoading(false)
+    }
+  }, [auth.token, isAdmin, fetchWithAuth])
+
   useEffect(() => {
     if (!auth.token) return
     load()
   }, [auth.token, load])
+
+  useEffect(() => {
+    if (!auth.token || !isAdmin) return
+    loadUsers()
+  }, [auth.token, isAdmin, loadUsers])
 
   function toCoursesArray(input) {
     const t = (input || '').trim()
@@ -208,6 +236,59 @@ export default function App() {
       setStudents(prev => prev.filter(s => s.id !== id))
     } catch (err) {
       setError(err.message || 'Failed to delete student')
+    }
+  }
+
+  async function onCreateUser(e) {
+    e.preventDefault()
+    setUserError('')
+    const username = userForm.username.trim()
+    const password = userForm.password
+    
+    if (password.length < 3) {
+      setUserError('Password must be at least 3 characters')
+      return
+    }
+    if (username.length < 3) {
+      setUserError('Username must be at least 3 characters')
+      return
+    }
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      setUserError('Username can only contain letters, numbers, and underscores')
+      return
+    }
+    
+    try {
+      const res = await fetchWithAuth('/api/users', {
+        method: 'POST',
+        headers: buildHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ username, password, role: userForm.role }),
+      })
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to create user')
+      }
+      const created = await res.json()
+      setUsers(prev => [...prev, created])
+      setUserForm({ username: '', password: '', role: 'user' })
+      setUserError('')
+    } catch (err) {
+      setUserError(err.message || 'Failed to create user')
+    }
+  }
+
+  async function onDeleteUser(username) {
+    if (!confirm(`Are you sure you want to delete user "${username}"?`)) return
+    setUserError('')
+    try {
+      const res = await fetchWithAuth(`/api/users/${username}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.detail || 'Delete failed')
+      }
+      setUsers(prev => prev.filter(u => u.username !== username))
+    } catch (err) {
+      setUserError(err.message || 'Failed to delete user')
     }
   }
 
@@ -363,6 +444,9 @@ export default function App() {
         <div className="toolbar">
           {isAdmin && (
             <>
+              <button className="btn" onClick={() => setShowUsers(!showUsers)}>
+                {showUsers ? 'Hide Users' : 'Manage Users'}
+              </button>
               <button className="btn" onClick={() => window.open(externalUrl('/health'), '_blank')}>Health</button>
               <button className="btn" onClick={() => window.open(externalUrl('/api/students'), '_blank')}>List JSON</button>
               <button className="btn" onClick={() => window.open(externalUrl('/docs'), '_blank')}>OpenAPI Docs</button>
@@ -381,6 +465,87 @@ export default function App() {
       </div>
 
       {error ? <div className="notice">{error}</div> : null}
+
+      {isAdmin && showUsers && (
+        <div className="card panel" style={{ marginBottom: 24 }}>
+          <h2 style={{ marginTop: 0, marginBottom: 16 }}>User Management</h2>
+          {userError ? <div className="notice" style={{ marginBottom: 16, background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)', color: '#991b1b' }}>{userError}</div> : null}
+          
+          <form onSubmit={onCreateUser} className="form-grid" style={{ marginBottom: 16 }}>
+            <input
+              className="input"
+              placeholder="Username (min 3 chars)"
+              value={userForm.username}
+              onChange={e => setUserForm({ ...userForm, username: e.target.value })}
+              minLength={3}
+              maxLength={50}
+              pattern="^[a-zA-Z0-9_]+$"
+              required
+            />
+            <input
+              className="input"
+              type="password"
+              placeholder="Password (min 3 chars)"
+              value={userForm.password}
+              onChange={e => setUserForm({ ...userForm, password: e.target.value })}
+              minLength={3}
+              required
+            />
+            <select
+              className="input"
+              value={userForm.role}
+              onChange={e => setUserForm({ ...userForm, role: e.target.value })}
+              style={{ padding: '10px 12px' }}
+            >
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button className="btn btn-primary" type="submit">Add User</button>
+          </form>
+
+          {usersLoading ? (
+            <div>Loading users...</div>
+          ) : users.length === 0 ? (
+            <div className="notice">No users found.</div>
+          ) : (
+            <table className="table">
+              <thead className="thead">
+                <tr>
+                  <th className="th">Username</th>
+                  <th className="th">Role</th>
+                  <th className="th">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {users.map(u => (
+                  <tr key={u.username}>
+                    <td className="td">{u.username}</td>
+                    <td className="td">
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '2px 8px',
+                        borderRadius: '999px',
+                        fontSize: '12px',
+                        background: u.role === 'admin' ? '#dbeafe' : '#f3f4f6',
+                        color: u.role === 'admin' ? '#1e40af' : '#374151'
+                      }}>
+                        {u.role}
+                      </span>
+                    </td>
+                    <td className="td">
+                      {u.username !== auth.username ? (
+                        <button className="btn btn-danger" onClick={() => onDeleteUser(u.username)}>Delete</button>
+                      ) : (
+                        <span style={{ color: 'var(--muted)', fontSize: '14px' }}>Current user</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {!editId ? (
         <form onSubmit={onCreate} className="card panel form-grid" style={{ marginBottom: 16 }}>
