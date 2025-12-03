@@ -251,7 +251,9 @@ export default function App() {
             <button className="btn btn-primary" type="submit">Login</button>
           </form>
         </div>
-        <a href="/signup">Sign up</a>
+        <div>
+          <Link to="/signup">Sign up</Link>
+        </div>
       </div>
     )
   }
