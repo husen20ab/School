@@ -237,5 +237,49 @@ body.login-mode {
   color: #1d4ed8;
 }
 
+.idle-message {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(15, 23, 42, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.3s ease-in;
+}
+
+.idle-message-content {
+  background: var(--surface-strong);
+  padding: 32px;
+  border-radius: 16px;
+  max-width: 400px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.idle-message-content h3 {
+  margin: 0 0 16px 0;
+  color: #dc2626;
+  font-size: 24px;
+}
+
+.idle-message-content p {
+  margin: 8px 0;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 
 

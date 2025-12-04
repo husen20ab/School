@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 const trimTrailingSlash = value => (value ? value.replace(/\/+$/, '') : '')
 const API_BASE = trimTrailingSlash(import.meta.env?.VITE_API_BASE || '')
@@ -42,6 +42,8 @@ export default function App() {
   const [userForm, setUserForm] = useState({ username: '', password: '', role: 'user' })
   const [userError, setUserError] = useState('')
   const [auth, setAuth] = useState(getStoredAuth)
+  const [showIdleMessage, setShowIdleMessage] = useState(false)
+  const idleTimerRef = useRef(null)
 
   const isAdmin = auth.role === 'admin'
 
@@ -52,22 +54,80 @@ export default function App() {
     }
   }, [])
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback((reason = '') => {
     setAuth(defaultAuth)
     setStudents([])
     if (typeof window !== 'undefined') {
       window.localStorage.removeItem('auth')
     }
+    if (reason) {
+      setShowIdleMessage(true)
+      // Clear the message after 5 seconds
+      setTimeout(() => setShowIdleMessage(false), 5000)
+    }
   }, [])
+
+  const resetIdleTimer = useCallback(() => {
+    // Clear existing timer
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = null
+    }
+
+    // Only set timer if user is logged in
+    if (!auth.token) return
+
+    // Set new timer for 10 minutes (600000 ms)
+    idleTimerRef.current = setTimeout(() => {
+      handleLogout('You have been automatically logged out due to 10 minutes of inactivity.')
+      idleTimerRef.current = null
+    }, 600000) // 10 minutes
+  }, [auth.token, handleLogout])
 
   useEffect(() => {
     const body = document.body
     if (!auth.token) {
       body.classList.add('login-mode')
+      // Clear idle timer when logged out
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current)
+        idleTimerRef.current = null
+      }
       return () => body.classList.remove('login-mode')
     }
     body.classList.remove('login-mode')
   }, [auth.token])
+
+  // Activity tracking for idle timeout
+  useEffect(() => {
+    if (!auth.token) return
+
+    // Reset timer on any user activity
+    const activityEvents = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart', 'click']
+    
+    const handleActivity = () => {
+      resetIdleTimer()
+    }
+
+    // Initial timer setup
+    resetIdleTimer()
+
+    // Add event listeners
+    activityEvents.forEach(event => {
+      document.addEventListener(event, handleActivity, true)
+    })
+
+    // Cleanup
+    return () => {
+      activityEvents.forEach(event => {
+        document.removeEventListener(event, handleActivity, true)
+      })
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current)
+        idleTimerRef.current = null
+      }
+    }
+  }, [auth.token, resetIdleTimer])
 
   useEffect(() => {
     const bgUrl = import.meta.env?.VITE_BG_URL
@@ -321,6 +381,7 @@ export default function App() {
       persistAuth(session)
       setLoginForm({ username: '', password: '' })
       setError('')
+      setShowIdleMessage(false)
     } catch (err) {
       setLoginError(err.message || 'Login failed')
     }
@@ -362,6 +423,7 @@ export default function App() {
       setSignupForm({ username: '', password: '' })
       setShowSignup(false)
       setError('')
+      setShowIdleMessage(false)
     } catch (err) {
       setSignupError(err.message || 'Signup failed')
     }
@@ -370,6 +432,15 @@ export default function App() {
   if (!auth.token) {
     return (
       <div className="login-page" style={{ backgroundImage: `linear-gradient(rgba(15,23,42,0.6), rgba(15,23,42,0.6)), url('${NATURE_BG}')` }}>
+        {showIdleMessage && (
+          <div className="idle-message">
+            <div className="idle-message-content">
+              <h3>Session Expired</h3>
+              <p>You have been automatically logged out due to 10 minutes of inactivity.</p>
+              <p>Please sign in again to continue.</p>
+            </div>
+          </div>
+        )}
         <div className="login-card">
           <h1>School Portal</h1>
           {!showSignup ? (
