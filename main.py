@@ -25,24 +25,6 @@ def hash_password(password: str) -> str:
     """Hash password using SHA-256 (simple hashing for this app)"""
     return hashlib.sha256(password.encode()).hexdigest()
 
-async def init_users():
-    """Initialize default users in MongoDB if they don't exist"""
-    users_coll = db["users"]
-    
-    default_users = [
-        {"username": "admin", "password": hash_password("admin"), "role": "admin"},
-        {"username": "john", "password": hash_password("john"), "role": "user"},
-    ]
-    
-    for user in default_users:
-        # Ensure username is lowercase for consistency
-        username = user["username"].lower()
-        existing = await users_coll.find_one({"username": username})
-        if not existing:
-            user["username"] = username
-            await users_coll.insert_one(user)
-            print(f"Created default user: {username}")
-
 # --- Lifespan (connect once) ---
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -51,8 +33,6 @@ async def lifespan(app: FastAPI):
         # Test connection
         await client.admin.command('ping')
         print(f"Mongo connected to database: {db.name}")
-        # Initialize default users
-        await init_users()
     except Exception as e:
         print(f"MongoDB connection error: {e}")
         raise

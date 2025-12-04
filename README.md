@@ -19,7 +19,13 @@ Frontend: React (Vite) with Netlify-ready configuration.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.app.txt
+pip install -r requirements.txt
+
+# Initialize users in MongoDB (run once)
+export MONGODB_URI="your-mongodb-connection-string"
+python init_users.py
+
+# Start the server
 uvicorn main:app --reload
 ```
 Environment variables:
@@ -64,7 +70,23 @@ This project is configured for:
 - **Frontend**: Netlify (React)
 - **Database**: MongoDB Atlas
 
-### Step 1: Deploy Backend to Render.com
+### Step 1: Initialize Users in MongoDB
+
+Before deploying, initialize the users collection:
+
+```bash
+# Set your MongoDB connection string
+export MONGODB_URI="mongodb+srv://husen20ab_db_user:hOWWOtRx1cEg8jBw@cluster0.neidmqo.mongodb.net/"
+
+# Run the initialization script
+python init_users.py
+```
+
+This will create the `users` collection with default users:
+- **admin** / admin (role: admin)
+- **john** / john (role: user)
+
+### Step 2: Deploy Backend to Render.com
 
 1. **Push your code to GitHub** (if not already done)
 
@@ -88,7 +110,7 @@ This project is configured for:
 5. **Deploy** - Render will build and deploy your backend
    - Your backend URL: **https://school-0a5y.onrender.com**
 
-### Step 2: Deploy Frontend to Netlify
+### Step 3: Deploy Frontend to Netlify
 
 1. **Connect Netlify to GitHub**:
    - Go to [Netlify Dashboard](https://app.netlify.com)
@@ -109,7 +131,7 @@ This project is configured for:
 4. **Deploy** - Netlify will build and deploy your frontend
    - Your frontend will be available at: `https://school-logistics.netlify.app`
 
-### Step 3: Update CORS in Render (if not set in Step 1)
+### Step 4: Update CORS in Render (if not set in Step 1)
 
 1. Go back to Render.com dashboard
 2. Navigate to your backend service → Environment
@@ -120,7 +142,7 @@ This project is configured for:
 
 4. **Redeploy** the backend service (Render will auto-redeploy on env var changes)
 
-### Step 4: Verify Deployment
+### Step 5: Verify Deployment
 
 - Visit your Netlify URL: **https://school-logistics.netlify.app**
 - Test creating/editing/deleting students
@@ -211,6 +233,7 @@ If the frontend loads but shows no students:
 ```
 my-env/
 ├── main.py                # FastAPI application
+├── init_users.py          # MongoDB users initialization script
 ├── requirements.txt       # Backend dependencies
 ├── render.yaml            # Render.com deployment configuration
 ├── netlify.toml           # Netlify build configuration
