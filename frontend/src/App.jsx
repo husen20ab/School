@@ -40,6 +40,7 @@ export default function App() {
   const [showSignup, setShowSignup] = useState(false)
   const [showUsers, setShowUsers] = useState(false)
   const [userForm, setUserForm] = useState({ username: '', password: '', role: 'user' })
+  const [editUserId, setEditUserId] = useState('')
   const [userError, setUserError] = useState('')
   const [auth, setAuth] = useState(getStoredAuth)
   const [showIdleMessage, setShowIdleMessage] = useState(false)
