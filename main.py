@@ -93,6 +93,8 @@ class StudentOut(BaseModel):
     name: str
     age: int
     courses: Optional[List[str]] = Field(default_factory=list)
+    owner_id: Optional[str] = None  # User ID who created this student
+    owner_username: Optional[str] = None  # Username of owner (for admin view)
 
 
 class LoginRequest(BaseModel):
@@ -109,6 +111,7 @@ class LoginResponse(BaseModel):
     token: str
     username: str
     role: str
+    user_id: str  # MongoDB user _id
 
 
 class CreateUserRequest(BaseModel):
@@ -118,21 +121,52 @@ class CreateUserRequest(BaseModel):
 
 
 class UserOut(BaseModel):
+    id: str
     username: str
     role: str
 
 
-def require_user(authorization: Optional[str] = Header(default=None)) -> Dict[str, str]:
+class UpdateUserRequest(BaseModel):
+    username: Optional[str] = Field(None, min_length=3, max_length=50, pattern="^[a-zA-Z0-9_]+$")
+    password: Optional[str] = Field(None, min_length=3, max_length=100)
+    role: Optional[str] = Field(None, pattern="^(admin|user)$")
+
+
+async def get_current_user(authorization: Optional[str] = Header(default=None)) -> Dict[str, str]:
+    """
+    Get current authenticated user from session token.
+    Returns user info including user_id, username, and role from MongoDB.
+    """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
     token = authorization.split(" ", 1)[1].strip()
     session = SESSIONS.get(token)
     if not session:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
-    return session
+    
+    # Fetch full user data from MongoDB to ensure we have user_id
+    users_coll = db["users"]
+    username = session.get("username")
+    if not username:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    
+    user_doc = await users_coll.find_one({"username": username})
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    return {
+        "user_id": str(user_doc["_id"]),
+        "username": user_doc["username"],
+        "role": user_doc["role"],
+        "token": token
+    }
+
+# Keep require_user as alias for backward compatibility
+require_user = get_current_user
 
 
-def require_admin(user: Dict[str, str] = Depends(require_user)) -> Dict[str, str]:
+async def require_admin(user: Dict[str, str] = Depends(get_current_user)) -> Dict[str, str]:
+    """Require admin role"""
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin privileges required")
     return user
@@ -143,12 +177,15 @@ def oid(id_str: str) -> ObjectId:
         raise HTTPException(status_code=404, detail="Student not found")
     return ObjectId(id_str)
 
-def doc_to_out(doc: dict) -> StudentOut:
+def doc_to_out(doc: dict, owner_username: Optional[str] = None) -> StudentOut:
+    """Convert MongoDB document to StudentOut model"""
     return StudentOut(
         id=str(doc["_id"]),
         name=doc.get("name", ""),
         age=doc.get("age", 0),
         courses=doc.get("courses", []),
+        owner_id=str(doc.get("owner_id", "")) if doc.get("owner_id") else None,
+        owner_username=owner_username,
     )
 
 
@@ -167,9 +204,10 @@ async def login(credentials: LoginRequest):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     token = secrets.token_hex(32)
-    session = {"username": username, "role": user_doc["role"], "token": token}
+    user_id = str(user_doc["_id"])
+    session = {"username": username, "role": user_doc["role"], "user_id": user_id, "token": token}
     SESSIONS[token] = session
-    return LoginResponse(token=token, username=username, role=user_doc["role"])
+    return LoginResponse(token=token, username=username, role=user_doc["role"], user_id=user_id)
 
 
 @app.post("/api/signup", response_model=LoginResponse)
@@ -201,10 +239,11 @@ async def signup(user_data: SignupRequest):
     
     # Auto-login after signup
     token = secrets.token_hex(32)
-    session = {"username": username, "role": "user", "token": token}
+    user_id = str(result.inserted_id)
+    session = {"username": username, "role": "user", "user_id": user_id, "token": token}
     SESSIONS[token] = session
     
-    return LoginResponse(token=token, username=username, role="user")
+    return LoginResponse(token=token, username=username, role="user", user_id=user_id)
 
 
 @app.get("/health")
@@ -255,7 +294,7 @@ async def create_user(user_data: CreateUserRequest, _: Dict[str, str] = Depends(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
     
-    return UserOut(username=username, role=user_data.role)
+    return UserOut(id=str(result.inserted_id), username=username, role=user_data.role)
 
 
 @app.get("/api/users", response_model=List[UserOut])
@@ -264,26 +303,67 @@ async def list_users(_: Dict[str, str] = Depends(require_admin)):
     try:
         users_coll = db["users"]
         docs = await users_coll.find({}, {"password": 0}).to_list(length=None)
-        return [UserOut(username=doc["username"], role=doc["role"]) for doc in docs]
+        return [UserOut(id=str(doc["_id"]), username=doc["username"], role=doc["role"]) for doc in docs]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 
-@app.delete("/api/users/{username}", status_code=status.HTTP_200_OK)
-async def delete_user(username: str, current_user: Dict[str, str] = Depends(require_admin)):
-    """Delete a user (admin only, cannot delete self)"""
-    username = username.lower()
+@app.put("/api/users/{user_id}", response_model=UserOut)
+async def update_user(user_id: str, user_data: UpdateUserRequest, current_user: Dict[str, str] = Depends(require_admin)):
+    """Update a user (admin only)"""
+    users_coll = db["users"]
     
+    # Check if user exists
+    user_doc = await users_coll.find_one({"_id": ObjectId(user_id)})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Build update data
+    update_data = {}
+    if user_data.username is not None:
+        new_username = user_data.username.strip().lower()
+        # Check if new username is already taken (by another user)
+        existing = await users_coll.find_one({"username": new_username, "_id": {"$ne": ObjectId(user_id)}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Username already exists")
+        update_data["username"] = new_username
+    
+    if user_data.password is not None:
+        update_data["password"] = hash_password(user_data.password)
+    
+    if user_data.role is not None:
+        update_data["role"] = user_data.role
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    
+    try:
+        result = await users_coll.update_one({"_id": ObjectId(user_id)}, {"$set": update_data})
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Fetch updated user
+        updated_doc = await users_coll.find_one({"_id": ObjectId(user_id)}, {"password": 0})
+        return UserOut(id=str(updated_doc["_id"]), username=updated_doc["username"], role=updated_doc["role"])
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@app.delete("/api/users/{user_id}", status_code=status.HTTP_200_OK)
+async def delete_user(user_id: str, current_user: Dict[str, str] = Depends(require_admin)):
+    """Delete a user (admin only, cannot delete self)"""
     # Prevent admin from deleting themselves
-    if username == current_user["username"]:
+    if user_id == current_user["user_id"]:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     
     try:
         users_coll = db["users"]
-        result = await users_coll.delete_one({"username": username})
+        result = await users_coll.delete_one({"_id": ObjectId(user_id)})
         if result.deleted_count == 0:
             raise HTTPException(status_code=404, detail="User not found")
-        return {"message": f"User {username} deleted"}
+        return {"message": f"User deleted"}
     except HTTPException:
         raise
     except Exception as e:
@@ -291,29 +371,92 @@ async def delete_user(username: str, current_user: Dict[str, str] = Depends(requ
 
 # ---------- List students ----------
 @app.get("/api/students", response_model=List[StudentOut])
-async def list_students(_: Dict[str, str] = Depends(require_user)):
+async def list_students(current_user: Dict[str, str] = Depends(get_current_user)):
+    """
+    List students:
+    - Admin: sees ALL students with owner_username
+    - Normal user: sees ONLY their own students
+    """
     try:
         coll = db["students"]
-        docs = await coll.find({}).to_list(length=None)
-        return [doc_to_out(d) for d in docs]
+        users_coll = db["users"]
+        user_id = current_user["user_id"]
+        role = current_user["role"]
+        
+        # Build query based on role
+        if role == "admin":
+            # Admin sees all students
+            query = {}
+        else:
+            # Normal user sees only their own students
+            query = {"owner_id": user_id}
+        
+        docs = await coll.find(query).to_list(length=None)
+        
+        # For admin, fetch owner usernames
+        if role == "admin":
+            result = []
+            for doc in docs:
+                owner_username = None
+                if doc.get("owner_id"):
+                    owner_doc = await users_coll.find_one({"_id": ObjectId(doc["owner_id"])})
+                    if owner_doc:
+                        owner_username = owner_doc.get("username")
+                result.append(doc_to_out(doc, owner_username))
+            return result
+        else:
+            # Normal users don't need owner_username
+            return [doc_to_out(d) for d in docs]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 # ---------- GET one student ----------
 @app.get("/api/students/{id}", response_model=StudentOut)
-async def get_student(id: str, _: Dict[str, str] = Depends(require_user)):
+async def get_student(id: str, current_user: Dict[str, str] = Depends(get_current_user)):
+    """Get a single student - users can only access their own, admins can access any"""
     coll = db["students"]
+    users_coll = db["users"]
     doc = await coll.find_one({"_id": oid(id)})
     if not doc:
         raise HTTPException(status_code=404, detail="Student not found")
-    return doc_to_out(doc)
+    
+    # Check access: admin can access any, normal user only their own
+    role = current_user["role"]
+    user_id = current_user["user_id"]
+    if role != "admin" and doc.get("owner_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied: You can only view your own students")
+    
+    # Fetch owner username if admin
+    owner_username = None
+    if role == "admin":
+        owner_id = doc.get("owner_id")
+        if owner_id:
+            try:
+                if isinstance(owner_id, str):
+                    owner_doc = await users_coll.find_one({"_id": ObjectId(owner_id)})
+                else:
+                    owner_doc = await users_coll.find_one({"_id": owner_id})
+                if owner_doc:
+                    owner_username = owner_doc.get("username")
+            except Exception:
+                pass  # Skip if owner_id is invalid
+    
+    return doc_to_out(doc, owner_username)
 
 # ---------- Create student ----------
 @app.post("/api/students", response_model=StudentOut, status_code=status.HTTP_201_CREATED)
-async def create_student(s: StudentIn, _: Dict[str, str] = Depends(require_user)):
+async def create_student(s: StudentIn, current_user: Dict[str, str] = Depends(get_current_user)):
+    """Create a new student - automatically linked to current user"""
     try:
         coll = db["students"]
-        data = {"name": s.name.strip(), "age": s.age, "courses": [c.strip() for c in (s.courses or []) if c.strip()]}
+        user_id = current_user["user_id"]
+        # Automatically set owner_id to current user
+        data = {
+            "name": s.name.strip(),
+            "age": s.age,
+            "courses": [c.strip() for c in (s.courses or []) if c.strip()],
+            "owner_id": user_id  # Link student to user who created it
+        }
         res = await coll.insert_one(data)
         doc = await coll.find_one({"_id": res.inserted_id})
         if not doc:
@@ -326,8 +469,21 @@ async def create_student(s: StudentIn, _: Dict[str, str] = Depends(require_user)
 
 # ---------- Delete student ----------
 @app.delete("/api/students/{id}", status_code=status.HTTP_200_OK)
-async def delete_student(id: str, _: Dict[str, str] = Depends(require_user)):
+async def delete_student(id: str, current_user: Dict[str, str] = Depends(get_current_user)):
+    """Delete a student - users can only delete their own, admins can delete any"""
     coll = db["students"]
+    user_id = current_user["user_id"]
+    role = current_user["role"]
+    
+    # Check if student exists and user has permission
+    doc = await coll.find_one({"_id": oid(id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Check access: admin can delete any, normal user only their own
+    if role != "admin" and doc.get("owner_id") != user_id:
+        raise HTTPException(status_code=403, detail="Access denied: You can only delete your own students")
+    
     result = await coll.delete_one({"_id": oid(id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Student not found")
@@ -335,10 +491,24 @@ async def delete_student(id: str, _: Dict[str, str] = Depends(require_user)):
 
 # Update a student
 @app.put("/api/students/{id}", response_model=StudentOut)
-async def update_student(id: str, s: StudentIn, _: Dict[str, str] = Depends(require_user)):
+async def update_student(id: str, s: StudentIn, current_user: Dict[str, str] = Depends(get_current_user)):
+    """Update a student - users can only update their own, admins can update any"""
     try:
         coll = db["students"]
-        # Build update payload from the provided model, cleaning data
+        users_coll = db["users"]
+        user_id = current_user["user_id"]
+        role = current_user["role"]
+        
+        # Check if student exists and user has permission
+        doc = await coll.find_one({"_id": oid(id)})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        # Check access: admin can update any, normal user only their own
+        if role != "admin" and doc.get("owner_id") != user_id:
+            raise HTTPException(status_code=403, detail="Access denied: You can only update your own students")
+        
+        # Build update payload (don't update owner_id)
         update_data = {
             "name": s.name.strip(),
             "age": s.age,
@@ -352,7 +522,23 @@ async def update_student(id: str, s: StudentIn, _: Dict[str, str] = Depends(requ
         doc = await coll.find_one({"_id": oid(id)})
         if not doc:
             raise HTTPException(status_code=500, detail="Failed to retrieve updated student")
-        return doc_to_out(doc)
+        
+        # Fetch owner username if admin
+        owner_username = None
+        if role == "admin":
+            owner_id = doc.get("owner_id")
+            if owner_id:
+                try:
+                    if isinstance(owner_id, str):
+                        owner_doc = await users_coll.find_one({"_id": ObjectId(owner_id)})
+                    else:
+                        owner_doc = await users_coll.find_one({"_id": owner_id})
+                    if owner_doc:
+                        owner_username = owner_doc.get("username")
+                except Exception:
+                    pass  # Skip if owner_id is invalid
+        
+        return doc_to_out(doc, owner_username)
     except HTTPException:
         raise
     except Exception as e:

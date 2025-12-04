@@ -11,7 +11,7 @@ const externalUrl = path => {
   return `${base.replace(/\/+$/, '')}${path}`
 }
 
-const defaultAuth = { token: '', username: '', role: '' }
+const defaultAuth = { token: '', username: '', role: '', user_id: '' }
 const getStoredAuth = () => {
   if (typeof window === 'undefined') return defaultAuth
   try {
@@ -337,16 +337,58 @@ export default function App() {
     }
   }
 
-  async function onDeleteUser(username) {
-    if (!confirm(`Are you sure you want to delete user "${username}"?`)) return
+  function startEditUser(user) {
+    setEditUserId(user.id)
+    setUserForm({
+      username: user.username,
+      password: '',
+      role: user.role
+    })
+  }
+
+  async function onUpdateUser(e) {
+    e.preventDefault()
+    setUserError('')
+    const updateData = {}
+    if (userForm.username.trim()) updateData.username = userForm.username.trim()
+    if (userForm.password) updateData.password = userForm.password
+    if (userForm.role) updateData.role = userForm.role
+    
+    if (Object.keys(updateData).length === 0) {
+      setUserError('Please provide at least one field to update')
+      return
+    }
+    
+    try {
+      const res = await fetchWithAuth(`/api/users/${editUserId}`, {
+        method: 'PUT',
+        headers: buildHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify(updateData),
+      })
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Failed to update user')
+      }
+      const updated = await res.json()
+      setUsers(prev => prev.map(u => u.id === editUserId ? updated : u))
+      setEditUserId('')
+      setUserForm({ username: '', password: '', role: 'user' })
+      setUserError('')
+    } catch (err) {
+      setUserError(err.message || 'Failed to update user')
+    }
+  }
+
+  async function onDeleteUser(userId) {
+    if (!confirm('Are you sure you want to delete this user?')) return
     setUserError('')
     try {
-      const res = await fetchWithAuth(`/api/users/${username}`, { method: 'DELETE' })
+      const res = await fetchWithAuth(`/api/users/${userId}`, { method: 'DELETE' })
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.detail || 'Delete failed')
       }
-      setUsers(prev => prev.filter(u => u.username !== username))
+      setUsers(prev => prev.filter(u => u.id !== userId))
     } catch (err) {
       setUserError(err.message || 'Failed to delete user')
     }
@@ -377,7 +419,7 @@ export default function App() {
       if (!res.ok) {
         throw new Error(data.detail || 'Login failed')
       }
-      const session = { token: data.token, username: data.username, role: data.role }
+      const session = { token: data.token, username: data.username, role: data.role, user_id: data.user_id }
       persistAuth(session)
       setLoginForm({ username: '', password: '' })
       setError('')
@@ -418,7 +460,7 @@ export default function App() {
       if (!res.ok) {
         throw new Error(data.detail || 'Signup failed')
       }
-      const session = { token: data.token, username: data.username, role: data.role }
+      const session = { token: data.token, username: data.username, role: data.role, user_id: data.user_id }
       persistAuth(session)
       setSignupForm({ username: '', password: '' })
       setShowSignup(false)
@@ -542,37 +584,71 @@ export default function App() {
           <h2 style={{ marginTop: 0, marginBottom: 16 }}>User Management</h2>
           {userError ? <div className="notice" style={{ marginBottom: 16, background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.3)', color: '#991b1b' }}>{userError}</div> : null}
           
-          <form onSubmit={onCreateUser} className="form-grid" style={{ marginBottom: 16 }}>
-            <input
-              className="input"
-              placeholder="Username (min 3 chars)"
-              value={userForm.username}
-              onChange={e => setUserForm({ ...userForm, username: e.target.value })}
-              minLength={3}
-              maxLength={50}
-              pattern="^[a-zA-Z0-9_]+$"
-              required
-            />
-            <input
-              className="input"
-              type="password"
-              placeholder="Password (min 3 chars)"
-              value={userForm.password}
-              onChange={e => setUserForm({ ...userForm, password: e.target.value })}
-              minLength={3}
-              required
-            />
-            <select
-              className="input"
-              value={userForm.role}
-              onChange={e => setUserForm({ ...userForm, role: e.target.value })}
-              style={{ padding: '10px 12px' }}
-            >
-              <option value="user">User</option>
-              <option value="admin">Admin</option>
-            </select>
-            <button className="btn btn-primary" type="submit">Add User</button>
-          </form>
+          {!editUserId ? (
+            <form onSubmit={onCreateUser} className="form-grid" style={{ marginBottom: 16 }}>
+              <input
+                className="input"
+                placeholder="Username (min 3 chars)"
+                value={userForm.username}
+                onChange={e => setUserForm({ ...userForm, username: e.target.value })}
+                minLength={3}
+                maxLength={50}
+                pattern="^[a-zA-Z0-9_]+$"
+                required
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="Password (min 3 chars)"
+                value={userForm.password}
+                onChange={e => setUserForm({ ...userForm, password: e.target.value })}
+                minLength={3}
+                required
+              />
+              <select
+                className="input"
+                value={userForm.role}
+                onChange={e => setUserForm({ ...userForm, role: e.target.value })}
+                style={{ padding: '10px 12px' }}
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button className="btn btn-primary" type="submit">Add User</button>
+            </form>
+          ) : (
+            <form onSubmit={onUpdateUser} className="form-grid" style={{ marginBottom: 16 }}>
+              <input
+                className="input"
+                placeholder="Username (min 3 chars)"
+                value={userForm.username}
+                onChange={e => setUserForm({ ...userForm, username: e.target.value })}
+                minLength={3}
+                maxLength={50}
+                pattern="^[a-zA-Z0-9_]+$"
+                required
+              />
+              <input
+                className="input"
+                type="password"
+                placeholder="New password (leave empty to keep current)"
+                value={userForm.password}
+                onChange={e => setUserForm({ ...userForm, password: e.target.value })}
+                minLength={3}
+              />
+              <select
+                className="input"
+                value={userForm.role}
+                onChange={e => setUserForm({ ...userForm, role: e.target.value })}
+                style={{ padding: '10px 12px' }}
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button className="btn btn-primary" type="submit">Update User</button>
+              <button className="btn" type="button" onClick={() => { setEditUserId(''); setUserForm({ username: '', password: '', role: 'user' })}}>Cancel</button>
+            </form>
+          )}
 
           {usersLoading ? (
             <div>Loading users...</div>
@@ -589,7 +665,7 @@ export default function App() {
               </thead>
               <tbody>
                 {users.map(u => (
-                  <tr key={u.username}>
+                  <tr key={u.id}>
                     <td className="td">{u.username}</td>
                     <td className="td">
                       <span style={{
@@ -604,11 +680,16 @@ export default function App() {
                       </span>
                     </td>
                     <td className="td">
-                      {u.username !== auth.username ? (
-                        <button className="btn btn-danger" onClick={() => onDeleteUser(u.username)}>Delete</button>
-                      ) : (
-                        <span style={{ color: 'var(--muted)', fontSize: '14px' }}>Current user</span>
-                      )}
+                      <div className="actions">
+                        {u.id !== auth.user_id ? (
+                          <>
+                            <button className="btn" onClick={() => startEditUser(u)}>Edit</button>
+                            <button className="btn btn-danger" onClick={() => onDeleteUser(u.id)}>Delete</button>
+                          </>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontSize: '14px' }}>Current user</span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -647,6 +728,7 @@ export default function App() {
               <th className="th">Name</th>
               <th className="th">Age</th>
               <th className="th">Courses</th>
+              {isAdmin && <th className="th">Added by</th>}
               <th className="th">Actions</th>
             </tr>
           </thead>
@@ -657,6 +739,9 @@ export default function App() {
                 <td className="td">{s.name}</td>
                 <td className="td">{s.age}</td>
                 <td className="td">{(s.courses || []).join(', ')}</td>
+                {isAdmin && (
+                  <td className="td">{s.owner_username || 'Unknown'}</td>
+                )}
                 <td className="td">
                   <div className="actions">
                     <button className="btn" onClick={() => startEdit(s)}>Edit</button>
